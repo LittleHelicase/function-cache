@@ -41,8 +41,9 @@ The `cache` function can take a second parameter :
         useFileCache: true,
         serializer: JSON.stringify,
         unserializer: JSON.parse,
-        hasher: farmhash.hash32,
-        tmpPrefix: "function-cache"
+        hasher: string-hash,
+        tmpPrefix: "function-cache",
+        updateCache: false
     });
 
 ### useMemoryCache
@@ -75,4 +76,9 @@ Defaults to `JSON.parse`.
 
 ### hasher
 A synchronous function to generate unique hash from given string.
-Defaults to `farmhash.hash32`.
+Defaults to `string-hash`.
+
+### updateCache
+Forces the caching to update the values in the cache. If you want to explicitly update
+the values (e.g. if you cache some web-requests). If set to `true` it will update (or create) the cache for
+the query made by this call. It will not remove all cached results.
