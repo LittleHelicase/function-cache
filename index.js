@@ -2,9 +2,9 @@ var fs = require("fs");
 var Q = require("q");
 var _ = require("lodash");
 var os = require("os");
-var farmhash = require('farmhash');
 var path = require('path');
 var mkdirParents = require('mkdir-parents');
+var hash = require('string-hash')
 
 var storage = {};
 
@@ -15,14 +15,15 @@ function cache(func, options) {
         useFileCache: true,
         serializer: JSON.stringify,
         unserializer: JSON.parse,
-        hasher: farmhash.hash32,
-        tmpPrefix: "function-cache"
+        hasher: hash,
+        tmpPrefix: "function-cache",
+        updateCache: false
     };
 
     _.assignIn(defaults, options);
     options = defaults;
 
-    // On calcule un hash pour la fonction, de manière à invalider le code si elle change.
+    // A hash is computed for the function to invalidate the hashing if it changes.
     var funcHash = options.hasher(func.toString());
 
     var funcWrapper = function() {
@@ -33,22 +34,23 @@ function cache(func, options) {
         var hash = options.hasher(funcHash + serializedArgs);
         var p = (options.useFileCache ? options.tmpDir + path.sep + options.tmpPrefix + hash : null);
 
-        if (options.useMemoryCache && storage[hash] !== undefined) {
-            // On a la valeur en cache RAM.
+        if (!options.updateCache && options.useMemoryCache && storage[hash] !== undefined) {
+            // Already in RAM storage
             return Q(storage[hash]);
         }
 
-        function callFunc() {
+        function callFunc(cb) {
             return Q(func.apply(this, args))
                 .then(function(result) {
                     if (options.useMemoryCache) storage[hash] = result;
                     if (options.useFileCache) {
                         var dir = path.dirname(p);
-                        // On crée le dossier s'il n'existe pas.
-                        mkdirParents(dir, 0777, function (err) {
+                        // Create folder if it does not exist
+                        mkdirParents(dir, 0o777, function (err) {
                             if (err) throw new Error(err);
                             fs.writeFile(p, options.serializer(result), function(err) {
                                 if(err) throw new Error(err);
+                                if (cb) cb()
                             });
                         });
                     }
@@ -60,17 +62,21 @@ function cache(func, options) {
         if (options.useFileCache) {
             return Q()
                 .then(function() {
-                    // On vérifie si un cache existe sous forme de fichier.
-                    return Q.nfcall(fs.readFile, p, "UTF-8");
+                    // We check if the cached file exists.
+                    var prom = Promise.resolve()
+                    if (options.updateCache) {
+                        prom = new Promise((resolve) => callFunc(resolve))
+                    }
+                    return prom.then(() => Q.nfcall(fs.readFile, p, "UTF-8"));
                 })
                 .then(function(serializedData) {
-                    // Le cache est disponible
+                    // Cache is available
                     var data = options.unserializer(serializedData);
                     if(options.useMemoryCache) storage[hash] = data;
                     return data;
                 },
                 function(err) {
-                    // Cache indisponible.
+                    // Cache not available.
                     return callFunc();
                 });
         }
